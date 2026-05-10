@@ -1,23 +1,12 @@
-import { useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Auth from './components/Auth'
 import Dashboard from './components/Dashboard'
-import { supabase } from './lib/supabase'
 
 function AppContent() {
   const { user, loading } = useAuth()
-  const [authReady, setAuthReady] = useState(false)
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      await supabase.auth.getSession()
-      setAuthReady(true)
-    }
-    checkAuth()
-  }, [])
-
-  if (!authReady || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <div className="text-center">

@@ -17,19 +17,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setUser(session?.user ?? null)
+    let isMounted = true
 
-      if (session?.user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-        setProfile(data)
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!isMounted) return
+
+        setUser(session?.user ?? null)
+
+        if (session?.user) {
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single()
+            if (isMounted) setProfile(data)
+          } catch (err) {
+            if (isMounted) setProfile(null)
+          }
+        }
+      } catch (err) {
+        console.error('Auth session error:', err)
+      } finally {
+        if (isMounted) setLoading(false)
       }
-      setLoading(false)
     }
 
     initAuth()
@@ -38,12 +51,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (_event, session) => {
         setUser(session?.user ?? null)
         if (session?.user) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-          setProfile(data)
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single()
+            setProfile(data)
+          } catch (err) {
+            console.error('Profile fetch error:', err)
+            setProfile(null)
+          }
         } else {
           setProfile(null)
         }
