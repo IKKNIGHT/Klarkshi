@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Event } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -16,9 +16,33 @@ export default function BettingModal({ event, onClose, onBetPlaced }: BettingMod
   const [amount, setAmount] = useState('')
   const [prediction, setPrediction] = useState('')
   const [loading, setLoading] = useState(false)
+  const [existingBet, setExistingBet] = useState<any>(null)
 
   const options = event.type === 'yes_no' ? ['Yes', 'No'] : ['Higher', 'Lower']
   const potentialWinnings = amount ? Math.floor(parseInt(amount) * 2) : 0
+
+  // Check for existing bet when modal opens
+  useEffect(() => {
+    const checkExistingBet = async () => {
+      if (!user) return
+      try {
+        const { data } = await supabase
+          .from('bets')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('event_id', event.id)
+          .single()
+        if (data) {
+          setExistingBet(data)
+          setAmount(data.amount.toString())
+          setPrediction(data.prediction)
+        }
+      } catch (err) {
+        // No existing bet
+      }
+    }
+    checkExistingBet()
+  }, [user, event.id])
 
   const handlePlaceBet = async () => {
     if (!user || !profile) return
@@ -28,30 +52,58 @@ export default function BettingModal({ event, onClose, onBetPlaced }: BettingMod
     }
 
     const betAmount = parseInt(amount)
-    if (betAmount > profile.cp_balance) {
+    const previousAmount = existingBet?.amount || 0
+    const amountDifference = betAmount - previousAmount
+
+    // Check if new amount exceeds balance (accounting for refund if updating)
+    if (amountDifference > profile.cp_balance) {
       toast.error('Insufficient CP balance')
       return
     }
 
     setLoading(true)
     try {
-      const { error: betError } = await supabase.from('bets').insert({
-        user_id: user.id,
-        event_id: event.id,
-        amount: betAmount,
-        prediction,
-      })
+      if (existingBet) {
+        // Update existing bet
+        const { error: updateError } = await supabase
+          .from('bets')
+          .update({
+            amount: betAmount,
+            prediction,
+          })
+          .eq('id', existingBet.id)
 
-      if (betError) throw betError
+        if (updateError) throw updateError
 
-      const { error: balanceError } = await supabase
-        .from('profiles')
-        .update({ cp_balance: profile.cp_balance - betAmount })
-        .eq('id', user.id)
+        // Update balance with the difference
+        const { error: balanceError } = await supabase
+          .from('profiles')
+          .update({ cp_balance: profile.cp_balance - amountDifference })
+          .eq('id', user.id)
 
-      if (balanceError) throw balanceError
+        if (balanceError) throw balanceError
 
-      toast.success(`Bet placed! You could win ${potentialWinnings} CP`)
+        toast.success(`Bet updated! New amount: ${betAmount} CP`)
+      } else {
+        // Create new bet
+        const { error: betError } = await supabase.from('bets').insert({
+          user_id: user.id,
+          event_id: event.id,
+          amount: betAmount,
+          prediction,
+        })
+
+        if (betError) throw betError
+
+        const { error: balanceError } = await supabase
+          .from('profiles')
+          .update({ cp_balance: profile.cp_balance - betAmount })
+          .eq('id', user.id)
+
+        if (balanceError) throw balanceError
+
+        toast.success(`Bet placed! You could win ${potentialWinnings} CP`)
+      }
       onBetPlaced()
       onClose()
     } catch (err) {
@@ -78,6 +130,14 @@ export default function BettingModal({ event, onClose, onBetPlaced }: BettingMod
         className="bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4 border border-slate-800"
       >
         <h2 className="text-2xl font-bold mb-4">{event.title}</h2>
+        {existingBet && (
+          <div className="mb-4 p-3 bg-indigo-900/30 border border-indigo-700 rounded-lg">
+            <p className="text-sm text-indigo-300">You already have a bet on this event</p>
+            <p className="text-sm text-slate-300 mt-1">
+              Current: {existingBet.amount} CP on <span className="font-semibold">{existingBet.prediction}</span>
+            </p>
+          </div>
+        )}
 
         <div className="space-y-4">
           <div>
